@@ -1,0 +1,27 @@
+[submodule "lib/sfml"]
+	path = libs/sfml
+	url = https://github.com/SFML/SFML.git
+[submodule "lib/imgui"]
+	path = libs/imgui
+	url = https://github.com/ocornut/imgui.git
+[submodule "libs/imgui-sfml"]
+	path = libs/imgui-sfml
+	url = https://github.com/SFML/imgui-sfml.git
+[submodule "libs/cli11"]
+	path = libs/cli11
+	url = https://github.com/CLIUtils/CLI11.git
+[submodule "libs/spdlog"]
+	path = libs/spdlog
+	url = https://github.com/gabime/spdlog.git
+[submodule "libs/tinyfiledialogs"]
+	path = libs/tinyfiledialogs
+	url = https://github.com/native-toolkit/libtinyfiledialogs.git
+[submodule "libs/implot"]
+	path = libs/implot
+	url = https://github.com/epezent/implot.git
+[submodule "libs/sfml"]
+	path = libs/sfml
+	url = https://github.com/SFML/SFML.git
+[submodule "libs/imgui"]
+	path = libs/imgui
+	url = https://github.com/ocornut/imgui.git
