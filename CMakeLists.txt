@@ -128,10 +128,20 @@ file(GLOB COMMON ${PROJECT_SOURCE_DIR}/common/*)
 
 include_directories(${PROJECT_SOURCE_DIR})
 
+if (${CMAKE_BUILD_TYPE} STREQUAL "Debug")
+    set(use_build_type "debug")
+    add_compile_options(-ggdb -O0)
+else ()
+    set(use_build_type "release")
+    add_compile_options(-ggdb -O3)
+endif ()
+
 add_executable(underwater-image-enchancement
                main.cpp
                imageops/colormodel.cpp
                imageops/colormodel.h
+               imageops/imageops.cpp
+               imageops/imageops.h
                ${TINYDIALOG}
                ${IMPLOT}
                ${COMMON}

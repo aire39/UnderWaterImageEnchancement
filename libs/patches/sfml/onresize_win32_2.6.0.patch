@@ -1,0 +1,192 @@
+diff --git a/include/SFML/Window/Event.hpp b/include/SFML/Window/Event.hpp
+index ab63d383..aadd9260 100644
+--- a/include/SFML/Window/Event.hpp
++++ b/include/SFML/Window/Event.hpp
+@@ -34,6 +34,9 @@
+ #include <SFML/Window/Mouse.hpp>
+ #include <SFML/Window/Sensor.hpp>
+ 
++#ifndef USE_SFML_ONRESIZING_EVENT
++#define USE_SFML_ONRESIZING_EVENT
++#endif
+ 
+ namespace sf
+ {
+@@ -210,6 +213,7 @@ public:
+         TouchMoved,             //!< A touch moved (data in event.touch)
+         TouchEnded,             //!< A touch event ended (data in event.touch)
+         SensorChanged,          //!< A sensor value changed (data in event.sensor)
++        Resizing,               //!< Keep last -- the total number of event types
+ 
+         Count                   //!< Keep last -- the total number of event types
+     };
+diff --git a/include/SFML/Window/WindowBase.hpp b/include/SFML/Window/WindowBase.hpp
+index 5a3af149..8ed118b8 100644
+--- a/include/SFML/Window/WindowBase.hpp
++++ b/include/SFML/Window/WindowBase.hpp
+@@ -38,6 +38,7 @@
+ #include <SFML/System/NonCopyable.hpp>
+ #include <SFML/System/String.hpp>
+ #include <SFML/System/Vector2.hpp>
++#include <functional>
+ 
+ 
+ namespace sf
+@@ -406,6 +407,14 @@ public:
+     ////////////////////////////////////////////////////////////
+     bool createVulkanSurface(const VkInstance& instance, VkSurfaceKHR& surface, const VkAllocationCallbacks* allocator = 0);
+ 
++    ////////////////////////////////////////////////////////////
++    /// \brief Set On Resize Callback Function
++    ///
++    /// \param cb  callback function to process resize
++    ///
++    ////////////////////////////////////////////////////////////
++    bool setOnSize(std::function<void(const Event&)> cb);
++
+ protected:
+ 
+     ////////////////////////////////////////////////////////////
+diff --git a/src/SFML/Window/Win32/WindowImplWin32.cpp b/src/SFML/Window/Win32/WindowImplWin32.cpp
+index 799834f8..5fff88e9 100755
+--- a/src/SFML/Window/Win32/WindowImplWin32.cpp
++++ b/src/SFML/Window/Win32/WindowImplWin32.cpp
+@@ -733,6 +733,16 @@ void WindowImplWin32::processEvent(UINT message, WPARAM wParam, LPARAM lParam)
+         // Resize event
+         case WM_SIZE:
+         {
++            if (getOnSize())
++            {
++              Event event_onresizing;
++              event_onresizing.type        = Event::Resizing;
++              event_onresizing.size.width  = getSize().x;
++              event_onresizing.size.height = getSize().y;
++
++              onSize(event_onresizing);
++            }
++
+             // Consider only events triggered by a maximize or a un-maximize
+             if (wParam != SIZE_MINIMIZED && !m_resizing && m_lastSize != getSize())
+             {
+@@ -749,6 +759,7 @@ void WindowImplWin32::processEvent(UINT message, WPARAM wParam, LPARAM lParam)
+                 // Restore/update cursor grabbing
+                 grabCursor(m_cursorGrabbed);
+             }
++
+             break;
+         }
+ 
+diff --git a/src/SFML/Window/WindowBase.cpp b/src/SFML/Window/WindowBase.cpp
+index 1f414dcc..5407012c 100644
+--- a/src/SFML/Window/WindowBase.cpp
++++ b/src/SFML/Window/WindowBase.cpp
+@@ -319,6 +319,18 @@ bool WindowBase::createVulkanSurface(const VkInstance& instance, VkSurfaceKHR& s
+ }
+ 
+ 
++////////////////////////////////////////////////////////////
++bool WindowBase::setOnSize(std::function<void(const Event&)> cb)
++{
++  if (m_impl)
++  {
++    m_impl->setOnSize(cb);
++    return true;
++  }
++
++  return false;
++}
++
+ ////////////////////////////////////////////////////////////
+ void WindowBase::onCreate()
+ {
+diff --git a/src/SFML/Window/WindowImpl.cpp b/src/SFML/Window/WindowImpl.cpp
+index d1e224dd..8e257cbc 100644
+--- a/src/SFML/Window/WindowImpl.cpp
++++ b/src/SFML/Window/WindowImpl.cpp
+@@ -175,6 +175,13 @@ bool WindowImpl::popEvent(Event& event, bool block)
+ }
+ 
+ 
++////////////////////////////////////////////////////////////
++void WindowImpl::setOnSize(std::function<void(const Event&)> cb)
++{
++    m_onsizeEvents = cb;
++}
++
++
+ ////////////////////////////////////////////////////////////
+ void WindowImpl::pushEvent(const Event& event)
+ {
+@@ -182,6 +189,23 @@ void WindowImpl::pushEvent(const Event& event)
+ }
+ 
+ 
++////////////////////////////////////////////////////////////
++void WindowImpl::onSize(const Event& event)
++{
++    if (m_onsizeEvents)
++    {
++      m_onsizeEvents(event);
++    }
++}
++
++
++////////////////////////////////////////////////////////////
++std::function<void(const Event&)> WindowImpl::getOnSize()
++{
++    return m_onsizeEvents;
++}
++
++
+ ////////////////////////////////////////////////////////////
+ void WindowImpl::processJoystickEvents()
+ {
+diff --git a/src/SFML/Window/WindowImpl.hpp b/src/SFML/Window/WindowImpl.hpp
+index 5beb06f9..ffef191f 100644
+--- a/src/SFML/Window/WindowImpl.hpp
++++ b/src/SFML/Window/WindowImpl.hpp
+@@ -43,6 +43,7 @@
+ #include <SFML/Window/Window.hpp>
+ #include <queue>
+ #include <set>
++#include <functional>
+ 
+ namespace sf
+ {
+@@ -114,6 +115,14 @@ public:
+     ////////////////////////////////////////////////////////////
+     bool popEvent(Event& event, bool block);
+ 
++    ///////////////////////////////////////////////////////////////////////
++    /// \brief Add callback function for window when an onSize event occurs
++    ///
++    /// \param cb passed in user callback function
++    ///
++    ///////////////////////////////////////////////////////////////////////
++    void setOnSize(std::function<void(const Event&)> cb);
++
+     ////////////////////////////////////////////////////////////
+     /// \brief Get the OS-specific handle of the window
+     ///
+@@ -259,6 +268,13 @@ protected:
+     ////////////////////////////////////////////////////////////
+     void pushEvent(const Event& event);
+ 
++    ////////////////////////////////////////////////////////////////////////
++    /// \brief Process specifically onSize events from the operating system
++    ///
++    ////////////////////////////////////////////////////////////////////////
++    void onSize(const Event& event);
++    std::function<void(const Event&)> getOnSize();
++
+     ////////////////////////////////////////////////////////////
+     /// \brief Process incoming events from the operating system
+     ///
+@@ -287,6 +303,7 @@ private:
+     Vector3f          m_sensorValue[Sensor::Count];                          //!< Previous value of the sensors
+     float             m_joystickThreshold;                                   //!< Joystick threshold (minimum motion for "move" event to be generated)
+     float             m_previousAxes[Joystick::Count][Joystick::AxisCount];  //!< Position of each axis last time a move event triggered, in range [-100, 100]
++    std::function<void(const Event&)> m_onsizeEvents;                              //!< process captured onSize events
+ };
+ 
+ } // namespace priv
