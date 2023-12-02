@@ -21,6 +21,8 @@
 std::pair<std::vector<uint8_t>, float> redefine_algo(const std::vector<uint8_t> & input_image, uint32_t image_width, uint32_t image_height, uint32_t bytes_per_pixel);
 std::vector<uint8_t> redefine(const std::vector<uint8_t> & input_image, uint32_t image_width, uint32_t image_height, uint32_t bytes_per_pixel, float loss_limit);
 
+std::vector<uint8_t> attenuation_map_max(const std::vector<uint8_t> & input_image, uint32_t image_width, uint32_t image_height, uint32_t bytes_per_pixel);
+
 int main(int argc, char*argv[])
 {
   constexpr std::string_view window_name = "Underwater Image Enhancement";
@@ -129,12 +131,17 @@ int main(int argc, char*argv[])
   std::vector<uint8_t> combined_channels_corrected_image = input_image;
   combined_channels_corrected_image = redefine(combined_channels_corrected_image, image_width, image_height, bytes_per_pixel, loss_limit);
 
-  // show original and resultant image
+  // generate attenuation channel (choose channel with the highest sum of pixel values)
 
-  //auto new_image_data = imageops::expand_to_n_channels(corrected_l_channel.data(), input_image.getSize().x, input_image.getSize().y, 1, bytes_per_pixel);
-  //auto new_image_data = imageops::expand_to_n_channels(corrected_m_channel.data(), input_image.getSize().x, input_image.getSize().y, 1, bytes_per_pixel);
-  //auto new_image_data = imageops::expand_to_n_channels(corrected_s_channel.data(), input_image.getSize().x, input_image.getSize().y, 1, bytes_per_pixel);
-  //auto new_image_data = imageops::expand_to_n_channels(lms_channels[2].data(), input_image.getSize().x, input_image.getSize().y, 1, bytes_per_pixel);
+  auto attenuation_channel = attenuation_map_max(input_image, image_width, image_height, bytes_per_pixel);
+  auto normalized_attenuation_channel = imageops::normalize_channel(attenuation_channel.data(), image_width, image_height);
+  auto expanded_attenuation_channel = imageops::expand_to_n_channels(attenuation_channel.data(), image_width, image_height, 1, bytes_per_pixel);
+
+  // generate detailed image (un-sharpen filter per channel)
+
+
+
+  // show original and resultant image
 
   sf::Image image_result;
   image_result.create(image_width, image_height, combined_channels_corrected_image.data());
@@ -290,4 +297,43 @@ std::vector<uint8_t> redefine(const std::vector<uint8_t> & input_image, uint32_t
   }
 
   return combined_channels_corrected_image;
+}
+
+std::vector<uint8_t> attenuation_map_max(const std::vector<uint8_t> & input_image, uint32_t image_width, uint32_t image_height, uint32_t bytes_per_pixel)
+{
+  constexpr float gamma = 1.2f; // controls intensity of received light
+  auto rgba_image_channels = imageops::channel_split(input_image.data(), image_width, image_height, bytes_per_pixel);
+
+  for (size_t i=0; i<image_height; i++)
+  {
+    for (size_t j=0; j<image_width; j++)
+    {
+      for (size_t k=0; k<3; k++)
+      {
+        float norm_pixel_value = static_cast<float>(rgba_image_channels[k][j + (i * image_width)]) / 255.0f;
+        float new_pixel_value = 1.0f - std::pow(norm_pixel_value, gamma);
+        rgba_image_channels[k][j + (i * image_width)] = static_cast<uint8_t>(new_pixel_value * 255.0f);
+      }
+    }
+  }
+
+  float r_max = imageops::channel_sum(rgba_image_channels[0].data(), image_width, image_height);
+  float g_max = imageops::channel_sum(rgba_image_channels[1].data(), image_width, image_height);
+  float b_max = imageops::channel_sum(rgba_image_channels[2].data(), image_width, image_height);
+
+  std::vector<uint8_t> max_attenuation_channel;
+  if ((r_max > g_max) && (r_max > b_max))
+  {
+    max_attenuation_channel = rgba_image_channels[0];
+  }
+  else if ((g_max > r_max) && (g_max > b_max))
+  {
+    max_attenuation_channel = rgba_image_channels[1];
+  }
+  else
+  {
+    max_attenuation_channel = rgba_image_channels[2];
+  }
+
+  return max_attenuation_channel;
 }

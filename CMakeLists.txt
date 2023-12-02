@@ -142,6 +142,8 @@ add_executable(underwater-image-enchancement
                imageops/colormodel.h
                imageops/imageops.cpp
                imageops/imageops.h
+               imageops/imagefilters.cpp
+               imageops/imagefilters.h
                ${TINYDIALOG}
                ${IMPLOT}
                ${COMMON}
