@@ -15,12 +15,12 @@
 #include <CLI/CLI.hpp>
 
 #include "imageops/imageops.h"
+#include "imageops/imagefilters.h"
 
 #define USE_ON_RESIZING true
 
 std::pair<std::vector<uint8_t>, float> redefine_algo(const std::vector<uint8_t> & input_image, uint32_t image_width, uint32_t image_height, uint32_t bytes_per_pixel);
 std::vector<uint8_t> redefine(const std::vector<uint8_t> & input_image, uint32_t image_width, uint32_t image_height, uint32_t bytes_per_pixel, float loss_limit);
-
 std::vector<uint8_t> attenuation_map_max(const std::vector<uint8_t> & input_image, uint32_t image_width, uint32_t image_height, uint32_t bytes_per_pixel);
 
 int main(int argc, char*argv[])
@@ -125,11 +125,17 @@ int main(int argc, char*argv[])
   std::vector<uint8_t> input_image (loaded_image.getPixelsPtr()
                                    ,loaded_image.getPixelsPtr()+(image_width * image_height * bytes_per_pixel));
 
+  auto input_image_split = imageops::channel_split(input_image.data(), image_width, image_height, bytes_per_pixel);
+  auto input_image_split_red = imageops::convert_int_to_float_channel(input_image_split[0].data(), image_width, image_height);
+  auto input_image_split_green = imageops::convert_int_to_float_channel(input_image_split[1].data(), image_width, image_height);
+  auto input_image_split_blue = imageops::convert_int_to_float_channel(input_image_split[2].data(), image_width, image_height);
+
   // generate redefined images based on mean of channels
 
   constexpr float loss_limit = 1e-2f; // loss limit is set t0 10^(-2) as this gets us to the about the minimal amount of iterations needed for the redefine image channels to balance out
   std::vector<uint8_t> combined_channels_corrected_image = input_image;
   combined_channels_corrected_image = redefine(combined_channels_corrected_image, image_width, image_height, bytes_per_pixel, loss_limit);
+  auto combined_channels_corrected_image_split = imageops::channel_split(combined_channels_corrected_image.data(), image_width, image_height, bytes_per_pixel);
 
   // generate attenuation channel (choose channel with the highest sum of pixel values)
 
@@ -139,12 +145,65 @@ int main(int argc, char*argv[])
 
   // generate detailed image (un-sharpen filter per channel)
 
+  std::vector<std::vector<uint8_t>> rgb_detail_mask(3, std::vector<uint8_t>(image_width * image_height));
+  auto rgba_image_channels = imageops::channel_split(input_image.data(), image_width, image_height, bytes_per_pixel);
+  constexpr float unsharp_const = 1.0f;
+  auto sharpen_mask_red = imagefilters::unsharpen_channel(rgba_image_channels[0], image_width, image_height, unsharp_const);
+  rgb_detail_mask[0] = imagefilters::constrain_filter_to_byte_map(sharpen_mask_red);
 
+  auto sharpen_mask_green = imagefilters::unsharpen_channel(rgba_image_channels[1], image_width, image_height, unsharp_const);
+  rgb_detail_mask[1] = imagefilters::constrain_filter_to_byte_map(sharpen_mask_green);
+
+  auto sharpen_mask_blue = imagefilters::unsharpen_channel(rgba_image_channels[2], image_width, image_height, unsharp_const);
+  rgb_detail_mask[2] = imagefilters::constrain_filter_to_byte_map(sharpen_mask_blue);
+
+  auto expanded_byte_sharpen_mask_red = imageops::expand_to_n_channels(rgb_detail_mask[0].data(), image_width, image_height, 1, bytes_per_pixel);
+  auto expanded_byte_sharpen_mask_green = imageops::expand_to_n_channels(rgb_detail_mask[1].data(), image_width, image_height, 1, bytes_per_pixel);
+  auto expanded_byte_sharpen_mask_blue = imageops::expand_to_n_channels(rgb_detail_mask[2].data(), image_width, image_height, 1, bytes_per_pixel);
+
+  // generate the Jaffe-McGlamey model --> J_c*t_c + A_c(1 - t_c), c E {R, G, B}
+  // I_fc = D_c + I_ct*A_max + I_c*(1 - A_max)
+
+  std::vector<float> neg_ones(image_width * image_height, 1.0f);
+  auto jm_model_one_minus_a = imageops::element_subtract(neg_ones.data(), normalized_attenuation_channel.data(), image_width, image_height);
+
+  auto combined_channels_corrected_image_split_red_float = imageops::convert_int_to_float_channel(combined_channels_corrected_image_split[0].data(), image_width, image_height);
+  auto jm_model_red_jt = imageops::element_multi(combined_channels_corrected_image_split_red_float.data(), normalized_attenuation_channel.data(), image_width, image_height);
+  auto jm_model_red_ai = imageops::element_multi(jm_model_one_minus_a.data(), input_image_split_red.data(), image_width, image_height);
+
+  auto combined_channels_corrected_image_split_green_float = imageops::convert_int_to_float_channel(combined_channels_corrected_image_split[1].data(), image_width, image_height);
+  auto jm_model_green_jt = imageops::element_multi(combined_channels_corrected_image_split_green_float.data(), normalized_attenuation_channel.data(), image_width, image_height);
+  auto jm_model_green_ai = imageops::element_multi(jm_model_one_minus_a.data(), input_image_split_green.data(), image_width, image_height);
+
+  auto combined_channels_corrected_image_split_blue_float = imageops::convert_int_to_float_channel(combined_channels_corrected_image_split[2].data(), image_width, image_height);
+  auto jm_model_blue_jt = imageops::element_multi(combined_channels_corrected_image_split_blue_float.data(), normalized_attenuation_channel.data(), image_width, image_height);
+  auto jm_model_blue_ai = imageops::element_multi(jm_model_one_minus_a.data(), input_image_split_blue.data(), image_width, image_height);
+
+  auto jm_model_red = imageops::element_add(imageops::element_add(jm_model_red_jt.data(), jm_model_red_ai.data(), image_width, image_height).data(), sharpen_mask_red.data(), image_width, image_height);
+  auto jm_model_green = imageops::element_add(imageops::element_add(jm_model_green_jt.data(), jm_model_green_ai.data(), image_width, image_height).data(), sharpen_mask_green.data(), image_width, image_height);
+  auto jm_model_blue = imageops::element_add(imageops::element_add(jm_model_blue_jt.data(), jm_model_blue_ai.data(), image_width, image_height).data(), sharpen_mask_blue.data(), image_width, image_height);
+
+  auto byte_jm_model_red = imagefilters::constrain_filter_to_byte_map(jm_model_red);
+  auto byte_jm_model_green = imagefilters::constrain_filter_to_byte_map(jm_model_green);
+  auto byte_jm_model_blue = imagefilters::constrain_filter_to_byte_map(jm_model_blue);
+
+  std::vector<std::vector<uint8_t>> jm_model_channels(4);
+  jm_model_channels[0] = byte_jm_model_red;
+  jm_model_channels[1] = byte_jm_model_green;
+  jm_model_channels[2] = byte_jm_model_blue;
+  jm_model_channels[3] = rgba_image_channels[3];
+
+  auto jm_model_color_corrected_image = imageops::channel_combine(jm_model_channels, image_width, image_height);
 
   // show original and resultant image
 
   sf::Image image_result;
-  image_result.create(image_width, image_height, combined_channels_corrected_image.data());
+  image_result.create(image_width, image_height, jm_model_color_corrected_image.data());
+
+  std::string color_corrected_image_file_path = image_file_path.substr(0, image_file_path.find_last_of('.'));
+  color_corrected_image_file_path += "_color_corrected.png";
+  image_result.saveToFile(color_corrected_image_file_path);
+
   sf::Texture texture_result;
   texture_result.loadFromImage(image_result);
   sf::Sprite result_plane(texture_result);

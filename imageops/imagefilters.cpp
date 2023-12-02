@@ -13,15 +13,15 @@ namespace imagefilters {
 
     std::vector<float> guassian_blur_image (image_width * image_height);
 
-    for (size_t i=0; i<image_width; i++)
+    for (size_t i=0; i<image_height; i++)
     {
       for (size_t j=0; j<image_width; j++)
       {
-        constexpr int32_t offset = 0;
-        constexpr int32_t sum_count = 0;
+        constexpr int32_t offset = 0; // which channel to start or use for each pixel
+        constexpr int32_t sum_count = 0; // can be used to sum components of pixel
         constexpr int32_t kernel_width = 3;
         constexpr int32_t kernel_height = 3;
-        constexpr int32_t bpp = 1;
+        constexpr int32_t bpp = 1; // bytes per pixel
 
         float filter_value = imageops::image_convolution(input_image
                                                         ,j
@@ -45,17 +45,16 @@ namespace imagefilters {
 
   }
 
-  std::vector<float> unsharpen_channel(const std::vector<uint8_t> & input_image, uint32_t image_width, uint32_t image_height)
+  std::vector<float> unsharpen_channel(const std::vector<uint8_t> & input_image, uint32_t image_width, uint32_t image_height, const float & unsharp_const)
   {
-    constexpr float unsharp_const = -1.0f;
     auto guassian_blur = guassian_blur_channel(input_image, image_width, image_height);
 
     std::vector<float> unsharp_mask_image (image_width * image_height);
-    for (size_t i=0; i<image_width; i++)
+    for (size_t i=0; i<image_height; i++)
     {
       for (size_t j=0; j<image_width; j++)
       {
-        unsharp_mask_image[j + (i * image_width)] = unsharp_const * static_cast<float>(input_image[j + (i * image_width)]) - guassian_blur[j + (i * image_width)];
+        unsharp_mask_image[j + (i * image_width)] = unsharp_const * (static_cast<float>(input_image[j + (i * image_width)]) - guassian_blur[j + (i * image_width)]);
       }
     }
 

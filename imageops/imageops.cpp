@@ -71,6 +71,72 @@ namespace imageops {
     return sum;
   }
 
+  std::vector<float> element_add(const uint8_t * image_data_channel_0, const uint8_t * image_data_channel_1, const uint32_t & image_width, const uint32_t & image_height)
+  {
+    std::vector<float> image_element_sum(image_width * image_height);
+    for (size_t i=0; i<(image_width * image_height); i++)
+    {
+      image_element_sum[i] = static_cast<float>(image_data_channel_0[i]) + static_cast<float>(image_data_channel_1[i]);
+    }
+
+    return image_element_sum;
+  }
+
+  std::vector<float> element_add(const float * image_data_channel_0, const float * image_data_channel_1, const uint32_t & image_width, const uint32_t & image_height)
+  {
+    std::vector<float> image_element_sum(image_width * image_height);
+    for (size_t i=0; i<(image_width * image_height); i++)
+    {
+      image_element_sum[i] = image_data_channel_0[i] + image_data_channel_1[i];
+    }
+
+    return image_element_sum;
+  }
+
+  std::vector<float> element_subtract(const uint8_t * image_data_channel_0, const uint8_t * image_data_channel_1, const uint32_t & image_width, const uint32_t & image_height)
+  {
+    std::vector<float> image_element_sum(image_width * image_height);
+    for (size_t i=0; i<(image_width * image_height); i++)
+    {
+      image_element_sum[i] = static_cast<float>(image_data_channel_0[i]) - static_cast<float>(image_data_channel_1[i]);
+    }
+
+    return image_element_sum;
+  }
+
+  std::vector<float> element_subtract(const float * image_data_channel_0, const float * image_data_channel_1, const uint32_t & image_width, const uint32_t & image_height)
+  {
+    std::vector<float> image_element_sum(image_width * image_height);
+    for (size_t i=0; i<(image_width * image_height); i++)
+    {
+      image_element_sum[i] = image_data_channel_0[i] - image_data_channel_1[i];
+    }
+
+    return image_element_sum;
+  }
+
+  std::vector<float> element_multi(const uint8_t * image_data_channel_0, const uint8_t * image_data_channel_1, const uint32_t & image_width, const uint32_t & image_height)
+  {
+    std::vector<float> image_element_sum(image_width * image_height);
+    for (size_t i=0; i<(image_width * image_height); i++)
+    {
+      image_element_sum[i] = static_cast<float>(image_data_channel_0[i]) * static_cast<float>(image_data_channel_1[i]);
+    }
+
+    return image_element_sum;
+  }
+
+  std::vector<float> element_multi(const float * image_data_channel_0, const float * image_data_channel_1, const uint32_t & image_width, const uint32_t & image_height)
+  {
+    std::vector<float> image_element_sum(image_width * image_height);
+    for (size_t i=0; i<(image_width * image_height); i++)
+    {
+      image_element_sum[i] = image_data_channel_0[i] * image_data_channel_1[i];
+    }
+
+    return image_element_sum;
+  }
+
   std::vector<float> normalize_channel(const uint8_t * image_data_channel, const uint32_t & image_width, const uint32_t & image_height)
   {
     std::vector<float> normalized_channel (image_width * image_height);
@@ -80,6 +146,18 @@ namespace imageops {
     }
 
     return  normalized_channel;
+  }
+
+  std::vector<float> convert_int_to_float_channel(const uint8_t * image_data_channel, const uint32_t & image_width, const uint32_t & image_height)
+  {
+    std::vector<float> float_channel (image_data_channel, image_data_channel + (image_width * image_height));
+    return float_channel;
+  }
+
+  std::vector<uint8_t> convert_float_to_int_channel(const float * image_data_channel, const uint32_t & image_width, const uint32_t & image_height)
+  {
+    std::vector<uint8_t> int_channel (image_data_channel, image_data_channel + (image_width * image_height));
+    return int_channel;
   }
 
   std::vector<std::vector<uint8_t>> channel_split(const uint8_t * image_data, const uint32_t & image_width, const uint32_t & image_height, const uint8_t & bpp)
