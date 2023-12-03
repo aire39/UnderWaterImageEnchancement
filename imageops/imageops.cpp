@@ -211,6 +211,25 @@ namespace imageops {
     return combined_channels;
   }
 
+  std::vector<float> channel_combine(const std::vector<std::vector<float>> & image_channels, const uint32_t & image_width, const uint32_t & image_height)
+  {
+    const size_t n_channels = image_channels.size();
+    std::vector<float> combined_channels (image_width * image_height * n_channels);
+
+    for (size_t i=0; i<image_height; i++)
+    {
+      for(size_t j=0; j<image_width; j++)
+      {
+        for (size_t k=0; k<image_channels.size(); k++)
+        {
+          combined_channels[(j * n_channels + k) + (i * image_width * n_channels)] = image_channels[k][j + (i * image_width)];
+        }
+      }
+    }
+
+    return combined_channels;
+  }
+
   std::vector<uint8_t> expand_to_n_channels(const uint8_t * image_data_channel, const uint32_t & image_width, const uint32_t & image_height, const uint8_t & input_bpp, const uint8_t & output_bpp)
   {
     std::vector<uint8_t> channel (image_width * image_height * output_bpp, std::numeric_limits<uint8_t>::max());
@@ -226,6 +245,24 @@ namespace imageops {
     return channel;
   }
 
+  void inplace_filter(const std::vector<float> & input_image, std::vector<float> & output_image, uint32_t x, uint32_t y, uint32_t local_width, uint32_t local_height, uint32_t image_width, uint32_t image_height, const std::function<float(const float &, void*)>& f, void* data)
+  {
+    for (size_t i=0; i<local_height; i++)
+    {
+      for (size_t j=0; j<local_width; j++)
+      {
+        auto x_limit = static_cast<int32_t>(static_cast<int32_t>(image_width - 1) - static_cast<int32_t>((x * local_width) + j));
+        auto y_limit = static_cast<int32_t>(static_cast<int32_t>(image_height - 1) - static_cast<int32_t>((y * local_height) + i));
+        uint32_t index = (j + (x * local_width)) + ((i + (y * local_height)) * image_width);
+
+        if (f && (x_limit >= 0) && (x_limit < static_cast<int32_t>(image_width)) && (y_limit >= 0) && (y_limit < static_cast<int32_t>(image_height)))
+        {
+          output_image[index] = f(input_image[index], data);
+        }
+        int32_t hold = 0;
+      }
+    }
+  }
 
   float image_convolution(const std::vector<uint8_t> & source
                         ,int32_t x

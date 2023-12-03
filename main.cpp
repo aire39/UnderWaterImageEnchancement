@@ -148,7 +148,7 @@ int main(int argc, char*argv[])
 
   std::vector<std::vector<uint8_t>> rgb_detail_mask(3, std::vector<uint8_t>(image_width * image_height));
   auto rgba_image_channels = imageops::channel_split(input_image.data(), image_width, image_height, bytes_per_pixel);
-  constexpr float unsharp_const = 1.0f;
+  constexpr float unsharp_const = 2.0f;
   auto sharpen_mask_red = imagefilters::unsharpen_channel(rgba_image_channels[0], image_width, image_height, unsharp_const);
   rgb_detail_mask[0] = imagefilters::constrain_filter_to_byte_map(sharpen_mask_red);
 
@@ -201,13 +201,53 @@ int main(int argc, char*argv[])
   auto cielab_color_corrected_image = colormodel::convert_image_rgb_to_cielab(jm_model_color_corrected_image, image_width, image_height);
   auto cielab_color_corrected_image_split = imageops::channel_split(cielab_color_corrected_image.data(), image_width, image_height, bytes_per_pixel);
 
-  auto cielab_rgb_color_corrected_image = colormodel::convert_image_cielab_to_rgb(cielab_color_corrected_image, image_width, image_height);
-  auto cielab_rgb_color_corrected_image_split = imageops::channel_split(cielab_color_corrected_image.data(), image_width, image_height, bytes_per_pixel);
+  constexpr uint32_t local_block_size = 50;
+  auto cielab_cc_integral_image = imagefilters::integral_image_map(cielab_color_corrected_image_split[0], image_width, image_height); // TODO [FIX ME]: integral map most likely still has errors
+  //float cielab_cc_local_mean_0 = imagefilters::integral_image_map_local_block_mean(cielab_cc_integral_image, image_width, image_height, 0, 0, local_block_size, local_block_size);
+  //auto cielab_cc_integral_image = imagefilters::integral_image_map({3.0f, 4.0f, 5.0f, 5.0f, 6.0f, 7.0f, 8.0f, 4.0f, 5.0f}, 3, 3);
+  //float cielab_cc_local_mean_0 = imagefilters::integral_image_map_local_block_mean(cielab_cc_integral_image, 3, 3, 0, 0, 3, 3);
+
+  auto block_y = static_cast<size_t>(std::ceil(image_height / local_block_size)) + 1;
+  auto block_x = static_cast<size_t>(std::ceil(image_width / local_block_size)) + 1;
+
+  std::vector<float> enhance_cie_l (image_width * image_height);
+  for (size_t i=0; i<block_y; i++)
+  {
+    for (size_t j=0; j<block_x; j++)
+    {
+      //float cielab_cc_local_var = imagefilters::integral_image_map_local_block_variance(cielab_cc_integral_image, image_width, image_height, 0, 0, local_block_size, local_block_size);
+      float cielab_cc_local_mean = imagefilters::integral_image_map_local_block_mean(cielab_cc_integral_image, image_width, image_height, j * local_block_size, i * local_block_size, local_block_size, local_block_size);
+
+      auto calc_function = [](const float & source_value, void* data) -> float {
+
+        constexpr float alpha = 1.0; // TODO: should rely on the ratio of the blue/green channel variance and use a beta scalar cutoff value
+        float mean = std::abs(*reinterpret_cast<float*>(data));
+        float output_value = std::clamp((mean + (alpha * (source_value - mean))), 0.0f, 100.0f);
+        return output_value;
+
+      };
+
+      imageops::inplace_filter(cielab_color_corrected_image_split[0]
+                              ,enhance_cie_l
+                              ,j
+                              ,i
+                              ,local_block_size
+                              ,local_block_size
+                              ,image_width, image_height
+                              ,calc_function
+                              ,&cielab_cc_local_mean);
+    }
+  }
+
+  cielab_color_corrected_image_split[0] = enhance_cie_l;
+  auto combine_cielab_color_corrected_image = imageops::channel_combine(cielab_color_corrected_image_split, image_width, image_height);
+  auto combine_cielab_color_corrected_image_rgba_convert = colormodel::convert_image_cielab_to_rgb(  combine_cielab_color_corrected_image, image_width, image_height);
 
   // show original and resultant image
 
   sf::Image image_result;
-  image_result.create(image_width, image_height, jm_model_color_corrected_image.data());
+  //image_result.create(image_width, image_height, jm_model_color_corrected_image.data());
+  image_result.create(image_width, image_height, combine_cielab_color_corrected_image_rgba_convert.data());
 
   std::string color_corrected_image_file_path = image_file_path.substr(0, image_file_path.find_last_of('.'));
   color_corrected_image_file_path += "_color_corrected.png";
