@@ -16,6 +16,7 @@
 
 #include "imageops/imageops.h"
 #include "imageops/imagefilters.h"
+#include "imageops/colormodel.h"
 
 #define USE_ON_RESIZING true
 
@@ -194,6 +195,14 @@ int main(int argc, char*argv[])
   jm_model_channels[3] = rgba_image_channels[3];
 
   auto jm_model_color_corrected_image = imageops::channel_combine(jm_model_channels, image_width, image_height);
+
+  // convert from rgb to cie-lab
+
+  auto cielab_color_corrected_image = colormodel::convert_image_rgb_to_cielab(jm_model_color_corrected_image, image_width, image_height);
+  auto cielab_color_corrected_image_split = imageops::channel_split(cielab_color_corrected_image.data(), image_width, image_height, bytes_per_pixel);
+
+  auto cielab_rgb_color_corrected_image = colormodel::convert_image_cielab_to_rgb(cielab_color_corrected_image, image_width, image_height);
+  auto cielab_rgb_color_corrected_image_split = imageops::channel_split(cielab_color_corrected_image.data(), image_width, image_height, bytes_per_pixel);
 
   // show original and resultant image
 

@@ -176,6 +176,22 @@ namespace imageops {
     return channels;
   }
 
+  std::vector<std::vector<float>> channel_split(const float * image_data, const uint32_t & image_width, const uint32_t & image_height, const uint8_t & bpp)
+  {
+    std::vector<std::vector<float>> channels;
+    for (size_t i=0; i<bpp; i++)
+    {
+      channels.emplace_back(image_width*image_height);
+    }
+
+    for (size_t i=0; i<(image_width * image_height * bpp); i++)
+    {
+      channels[(i % bpp)][(i / bpp)] = image_data[i];
+    }
+
+    return channels;
+  }
+
   std::vector<uint8_t> channel_combine(const std::vector<std::vector<uint8_t>> & image_channels, const uint32_t & image_width, const uint32_t & image_height)
   {
     const size_t n_channels = image_channels.size();
