@@ -87,6 +87,32 @@ namespace imagefilters {
     return integral_image;
   }
 
+  std::vector<float> integral_square_image_map(const std::vector<float> & input_image, uint32_t image_width, uint32_t image_height)
+  {
+    std::vector<float> integral_image (image_width * image_height);
+    integral_image[0] = input_image[0]*input_image[0];
+
+    for (size_t i=1; i<image_width; i++)
+    {
+      integral_image[i] = integral_image[i-1] + (input_image[i] * input_image[i]);
+    }
+
+    for (size_t i=1; i<image_height; i++)
+    {
+      float s = (input_image[0 + (i * image_width)] * input_image[0 + (i * image_width)]);
+      integral_image[0 + (i * image_width)] = integral_image[0 + ((i - 1) * image_width)] + s;
+
+      for (size_t j=1; j<image_width; j++)
+      {
+        float v = (input_image[j + (i * image_width)] * input_image[j + (i * image_width)]);
+        s = s + v;
+        integral_image[j + (i * image_width)] = integral_image[j + ((i - 1) * image_width)] + s;
+      }
+    }
+
+    return integral_image;
+  }
+
   float integral_image_map_local_block_mean(const std::vector<float> & input_image, uint32_t image_width, uint32_t image_height, uint32_t x, uint32_t y, uint32_t local_width, uint32_t local_height)
   {
     int32_t x_length = (static_cast<int32_t>(image_width) - static_cast<int32_t>(x + local_width));
@@ -128,15 +154,47 @@ namespace imagefilters {
     return mean;
   }
 
-  float integral_image_map_local_block_variance(const std::vector<float> & input_image, uint32_t image_width, uint32_t image_height, uint32_t x, uint32_t y, uint32_t local_width, uint32_t local_height)
+  float integral_image_map_local_block_variance(const std::vector<float> & input_image_sum_var_table, const std::vector<float> & input_image_sum_mean_table, uint32_t image_width, uint32_t image_height, uint32_t x, uint32_t y, uint32_t local_width, uint32_t local_height)
   {
-    float l1 = ((x > 0) && (y > 0)) ? input_image[(x - 1) + ((y - 1) * image_width)] : 0.0f;
-    float l2 = (y > 0) ? input_image[(x + local_width - 1) + ((y + 0) * image_width)] : 0.0f;
-    float l3 = (x > 0) ? input_image[(x + 0) + ((y + local_height - 1) * image_width)] : 0.0f;
-    float l4 = input_image[(x + local_width - 1) + ((y + local_height - 1) * image_width)];
+    int32_t x_length = (static_cast<int32_t>(image_width) - static_cast<int32_t>(x + local_width));
+    int32_t y_length = (static_cast<int32_t>(image_height) - static_cast<int32_t>(y + local_height));
 
-    float mean = integral_image_map_local_block_mean(input_image, image_width, image_height, x, y, local_width, local_height);
-    float variance = (std::pow(((l4 + l1) - (l2 + l3)), 2.0f) / static_cast<float>(local_width * local_height)) - std::pow(mean, 2.0f);
+    int32_t x_index_limit;
+    int32_t y_index_limit;
+
+    if (x_length < 0)
+    {
+      x += x_length;
+      x_index_limit = static_cast<int32_t>(local_width);
+    }
+    else
+    {
+      x_index_limit = static_cast<int32_t>(local_width);
+    }
+
+    if (y_length < 0)
+    {
+      y += y_length;
+      y_index_limit = static_cast<int32_t>(local_height);
+    }
+    else
+    {
+      y_index_limit = static_cast<int32_t>(local_height);
+    }
+
+    local_height = y_index_limit;
+    local_width = x_index_limit;
+
+    float l4 = input_image_sum_var_table[(x + local_width - 1) + ((y + local_height - 1) * image_width)];
+    float l3 = (x > 0) ? input_image_sum_var_table[(x - 1) + ((y + local_height - 1) * image_width)] : 0.0f;
+    float l2 = (y > 0) ? input_image_sum_var_table[(x + local_width - 1) + ((y - 1) * image_width)] : 0.0f;
+    float l1 = ((x > 0) && (y > 0)) ? input_image_sum_var_table[(x - 1) + ((y - 1) * image_width)] : 0.0f;
+
+    float mean = integral_image_map_local_block_mean(input_image_sum_mean_table, image_width, image_height, x, y, local_width, local_height);
+    mean *= mean;
+
+    float variance = (((l4 + l1) - (l2 + l3)) / static_cast<float>(local_width * local_height));
+    variance -= mean;
 
     return variance;
   }

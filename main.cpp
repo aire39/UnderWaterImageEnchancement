@@ -44,10 +44,10 @@ int main(int argc, char*argv[])
   uint32_t enhance_contrast_block_size = 50;
   app.add_option("-b,--b", enhance_contrast_block_size, "image enhance block size");
 
-  float sharp_const = 2.0f;
+  float sharp_const = 1.0f;
   app.add_option("-s,--s", sharp_const, "image sharp constant value");
 
-  float enhance_const = 1.0f;
+  float enhance_const = 1.0f; // note papers uses a value of 2
   app.add_option("-e,--e", enhance_const, "image enhancement constant value");
 
   CLI11_PARSE(app, argc, argv)
@@ -215,7 +215,9 @@ int main(int argc, char*argv[])
 
   const uint32_t local_block_size = enhance_contrast_block_size;
   auto cielab_cc_integral_image = imagefilters::integral_image_map(cielab_color_corrected_image_split[0], image_width, image_height);
-  float cielab_cc_global_var = imagefilters::integral_image_map_local_block_variance(cielab_cc_integral_image, image_width, image_height, 0, 0, image_width, image_height);
+  auto cielab_cc_squared_integral_image = imagefilters::integral_square_image_map(cielab_color_corrected_image_split[0], image_width, image_height);
+
+  float cielab_cc_global_var = imageops::variance(cielab_color_corrected_image_split[0].data(), image_width, image_height);
 
   // create enhance contrast map
 
@@ -227,8 +229,8 @@ int main(int argc, char*argv[])
   {
     for (size_t j=0; j<block_x; j++)
     {
-      float cielab_cc_local_var = imagefilters::integral_image_map_local_block_variance(cielab_cc_integral_image, image_width, image_height, j * local_block_size, i * local_block_size, local_block_size, local_block_size);
       float cielab_cc_local_mean = imagefilters::integral_image_map_local_block_mean(cielab_cc_integral_image, image_width, image_height, j * local_block_size, i * local_block_size, local_block_size, local_block_size);
+      float cielab_cc_local_var = imagefilters::integral_image_map_local_block_variance(cielab_cc_squared_integral_image, cielab_cc_integral_image, image_width, image_height, j * local_block_size, i * local_block_size, local_block_size, local_block_size);
       std::tuple<float, float, float> mean_var_gvar = {cielab_cc_local_mean, cielab_cc_local_var, cielab_cc_global_var};
 
       auto calc_function = [e_c = enhance_const](const float & source_value, void* data) -> float {
@@ -270,8 +272,6 @@ int main(int argc, char*argv[])
       //cielab_color_corrected_image_split[0][j + (i * image_width)] /= 2.0f;
     }
   }
-
-
 
   // color balance a and b channels
 
