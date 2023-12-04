@@ -41,6 +41,15 @@ int main(int argc, char*argv[])
   std::string image_file_path;
   app.add_option("-i,--image", image_file_path, "load image to process");
 
+  uint32_t enhance_contrast_block_size = 50;
+  app.add_option("-b,--b", enhance_contrast_block_size, "image enhance block size");
+
+  float sharp_const = 2.0f;
+  app.add_option("-s,--s", sharp_const, "image sharp constant value");
+
+  float enhance_const = 1.0f;
+  app.add_option("-e,--e", enhance_const, "image enhancement constant value");
+
   CLI11_PARSE(app, argc, argv)
 
   // setup logger
@@ -149,7 +158,7 @@ int main(int argc, char*argv[])
 
   std::vector<std::vector<uint8_t>> rgb_detail_mask(3, std::vector<uint8_t>(image_width * image_height));
   auto rgba_image_channels = imageops::channel_split(input_image.data(), image_width, image_height, bytes_per_pixel);
-  constexpr float unsharp_const = 2.0f;
+  const float unsharp_const = sharp_const;
   auto sharpen_mask_red = imagefilters::unsharpen_channel(rgba_image_channels[0], image_width, image_height, unsharp_const);
   rgb_detail_mask[0] = imagefilters::constrain_filter_to_byte_map(sharpen_mask_red);
 
@@ -204,7 +213,7 @@ int main(int argc, char*argv[])
 
   // created integral image (summed-area table)
 
-  constexpr uint32_t local_block_size = 50;
+  const uint32_t local_block_size = enhance_contrast_block_size;
   auto cielab_cc_integral_image = imagefilters::integral_image_map(cielab_color_corrected_image_split[0], image_width, image_height);
   float cielab_cc_global_var = imagefilters::integral_image_map_local_block_variance(cielab_cc_integral_image, image_width, image_height, 0, 0, image_width, image_height);
 
@@ -222,10 +231,10 @@ int main(int argc, char*argv[])
       float cielab_cc_local_mean = imagefilters::integral_image_map_local_block_mean(cielab_cc_integral_image, image_width, image_height, j * local_block_size, i * local_block_size, local_block_size, local_block_size);
       std::tuple<float, float, float> mean_var_gvar = {cielab_cc_local_mean, cielab_cc_local_var, cielab_cc_global_var};
 
-      auto calc_function = [](const float & source_value, void* data) -> float {
+      auto calc_function = [e_c = enhance_const](const float & source_value, void* data) -> float {
 
         auto [mean, var, gvar] = *reinterpret_cast<std::tuple<float, float, float>*>(data);
-        constexpr float beta = 1.0f;
+        const float beta = e_c;
         float var_ratio = (gvar / var); // TODO [FIX IT]: global variance is too big for it to matter
         float enhance_const = (var_ratio < beta) ? var_ratio : beta;
 
