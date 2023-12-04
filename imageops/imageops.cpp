@@ -21,6 +21,23 @@ namespace imageops {
     return avg;
   }
 
+  float mean (const float * image_data_channel, const uint32_t & image_width, const uint32_t & image_height)
+  {
+    float avg = 0.0f;
+
+    for (size_t i=0; i<image_height; i++)
+    {
+      for (size_t j=0; j<image_width; j++)
+      {
+        avg += image_data_channel[j + (i*image_width)];
+      }
+    }
+
+    avg /= static_cast<float>(image_width * image_height);
+
+    return avg;
+  }
+
   float min_channel_value(const uint8_t * image_data_channel, const uint32_t & image_width, const uint32_t & image_height)
   {
     auto value = static_cast<float>(std::numeric_limits<uint8_t>::max());

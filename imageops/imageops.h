@@ -6,6 +6,7 @@
 
 namespace imageops {
   float mean (const uint8_t * image_data_channel, const uint32_t & image_width, const uint32_t & image_height);
+  float mean (const float * image_data_channel, const uint32_t & image_width, const uint32_t & image_height);
   float min_channel_value(const uint8_t * image_data_channel, const uint32_t & image_width, const uint32_t & image_height);
   float max_channel_value(const uint8_t * image_data_channel, const uint32_t & image_width, const uint32_t & image_height);
   float channel_sum(const uint8_t * image_data_channel, const uint32_t & image_width, const uint32_t & image_height);

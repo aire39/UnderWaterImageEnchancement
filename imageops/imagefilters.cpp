@@ -89,16 +89,39 @@ namespace imagefilters {
 
   float integral_image_map_local_block_mean(const std::vector<float> & input_image, uint32_t image_width, uint32_t image_height, uint32_t x, uint32_t y, uint32_t local_width, uint32_t local_height)
   {
-    const size_t x_index_limit = (image_width - (x + local_width)) < local_width ? (image_width - (x + local_width)) : local_width;
-    const size_t y_index_limit = (image_height - (y + local_height)) < local_height ? (image_height - (y + local_height)) : local_height;
+    int32_t x_length = (static_cast<int32_t>(image_width) - static_cast<int32_t>(x + local_width));
+    int32_t y_length = (static_cast<int32_t>(image_height) - static_cast<int32_t>(y + local_height));
+
+    int32_t x_index_limit;
+    int32_t y_index_limit;
+
+    if (x_length < 0)
+    {
+      x += x_length;
+      x_index_limit = static_cast<int32_t>(local_width);
+    }
+    else
+    {
+      x_index_limit = static_cast<int32_t>(local_width);
+    }
+
+    if (y_length < 0)
+    {
+      y += y_length;
+      y_index_limit = static_cast<int32_t>(local_height);
+    }
+    else
+    {
+      y_index_limit = static_cast<int32_t>(local_height);
+    }
 
     local_height = y_index_limit;
     local_width = x_index_limit;
 
-    float l1 = ((x > 0) && (y > 0)) ? input_image[(x - 1) + ((y - 1) * image_width)] : 0.0f;
-    float l2 = (y > 0) ? input_image[(x + local_width - 1) + ((y + 0) * image_width)] : 0.0f;
-    float l3 = (x > 0) ? input_image[(x + 0) + ((y + local_height - 1) * image_width)] : 0.0f;
     float l4 = input_image[(x + local_width - 1) + ((y + local_height - 1) * image_width)];
+    float l3 = (x > 0) ? input_image[(x - 1) + ((y + local_height - 1) * image_width)] : 0.0f;
+    float l2 = (y > 0) ? input_image[(x + local_width - 1) + ((y - 1) * image_width)] : 0.0f;
+    float l1 = ((x > 0) && (y > 0)) ? input_image[(x - 1) + ((y - 1) * image_width)] : 0.0f;
 
     float mean = ((l4 + l1) - (l2 + l3)) / static_cast<float>(local_width * local_height);
 
@@ -123,7 +146,7 @@ namespace imagefilters {
     std::vector<uint8_t> constraint_result (filter.size());
     for (size_t i=0; i<filter.size(); i++)
     {
-      constraint_result[i] = static_cast<uint8_t>(std::clamp(static_cast<float>(filter[i]), static_cast<float>(std::numeric_limits<uint8_t>::min()), static_cast<float>(std::numeric_limits<uint8_t>::max())));
+      constraint_result[i] = static_cast<uint8_t>(std::clamp(filter[i], static_cast<float>(std::numeric_limits<uint8_t>::min()), static_cast<float>(std::numeric_limits<uint8_t>::max())));
     }
 
     return constraint_result;

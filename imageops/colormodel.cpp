@@ -186,9 +186,10 @@ namespace colormodel
   std::tuple<double , double, double> xyz2cielab(const double & x, const double & y, const double & z)
   {
     // using the D65/2 xyz reference values
-    double var_x = x / 95.047;
+    //94.416 100.000 120.641 : D75
+    double var_x = x / 94.416;
     double var_y = y / 100.0;
-    double var_z = z / 108.883;
+    double var_z = z / 120.641;
 
     if (var_x > 0.008856)
     {
@@ -258,9 +259,12 @@ namespace colormodel
     }
 
     // using the D65/2 xyz reference values
-    double x = var_x * 95.047;
+    // 95.047 100.000 108.883 : D65/2
+    //94.416 100.000 120.641 : D75
+
+    double x = var_x * 94.416f;
     double y = var_y * 100.0f;
-    double z = var_z * 108.883f;
+    double z = var_z * 120.641f;
 
     return {x, y, z};
   }
