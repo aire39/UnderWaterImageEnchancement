@@ -3,6 +3,7 @@
 #include <utility>
 #include <vector>
 #include <tuple>
+#include <cstring>
 
 #include <imgui.h>
 #include <imgui-SFML.h>
@@ -47,8 +48,14 @@ int main(int argc, char*argv[])
   float sharp_const = 1.0f;
   app.add_option("-s,--s", sharp_const, "image sharp constant value");
 
-  float enhance_const = 1.0f; // note papers uses a value of 2
+  float enhance_const = 2.0f; // note papers uses a value of 2
   app.add_option("-e,--e", enhance_const, "image enhancement constant value");
+
+  float k_const = 2.0f; // note papers uses a value of 2
+  app.add_option("-k,--k", k_const, "image enhancement constant value");
+
+  float v_const = 2.0f; // note papers uses a value of 2
+  app.add_option("-v,--v", v_const, "image enhancement constant value");
 
   CLI11_PARSE(app, argc, argv)
 
@@ -148,6 +155,10 @@ int main(int argc, char*argv[])
   combined_channels_corrected_image = redefine(combined_channels_corrected_image, image_width, image_height, bytes_per_pixel, loss_limit);
   auto combined_channels_corrected_image_split = imageops::channel_split(combined_channels_corrected_image.data(), image_width, image_height, bytes_per_pixel);
 
+  auto expanded_byte_redfine_mask_r = imageops::expand_to_n_channels(combined_channels_corrected_image_split[0].data(), image_width, image_height, 1, bytes_per_pixel);
+  auto expanded_byte_redfine_mask_g = imageops::expand_to_n_channels(combined_channels_corrected_image_split[1].data(), image_width, image_height, 1, bytes_per_pixel);
+  auto expanded_byte_redfine_mask_b = imageops::expand_to_n_channels(combined_channels_corrected_image_split[2].data(), image_width, image_height, 1, bytes_per_pixel);
+
   // generate attenuation channel (choose channel with the highest sum of pixel values)
 
   auto attenuation_channel = attenuation_map_max(input_image, image_width, image_height, bytes_per_pixel);
@@ -211,36 +222,52 @@ int main(int argc, char*argv[])
   auto cielab_color_corrected_image = colormodel::convert_image_rgb_to_cielab(jm_model_color_corrected_image, image_width, image_height);
   auto cielab_color_corrected_image_split = imageops::channel_split(cielab_color_corrected_image.data(), image_width, image_height, bytes_per_pixel);
 
+  auto channel_l = imageops::convert_float_to_int_channel(imageops::element_multi(255.0f, imageops::constrained_normalize_channel(cielab_color_corrected_image_split[0].data(), image_width, image_height).data(), image_width, image_height).data(), image_width, image_height);
+  auto byte_cielab_l_channel = imageops::expand_to_n_channels(channel_l.data(), image_width, image_height, 1, bytes_per_pixel);
+
   // created integral image (summed-area table)
 
   const uint32_t local_block_size = enhance_contrast_block_size;
   auto cielab_cc_integral_image = imagefilters::integral_image_map(cielab_color_corrected_image_split[0], image_width, image_height);
   auto cielab_cc_squared_integral_image = imagefilters::integral_square_image_map(cielab_color_corrected_image_split[0], image_width, image_height);
 
+  float mv = imageops::max_channel_value(cielab_cc_integral_image.data(), image_width, image_height);
+  auto nm_ii = imageops::element_divide(mv, cielab_cc_integral_image.data(), image_width, image_height);
+  float max_int = 255.0f;
+  auto nm_ii_int = imageops::element_multi(max_int, nm_ii.data(), image_width, image_height);
+  auto byte_nm_ii_int = imageops::convert_float_to_int_channel(nm_ii_int.data(), image_width, image_height);
+  auto rgba_byte_nm_ii_int = imageops::expand_to_n_channels(byte_nm_ii_int.data(), image_width, image_height, 1, 4);
+
   float cielab_cc_global_var = imageops::variance(cielab_color_corrected_image_split[0].data(), image_width, image_height);
 
   // create enhance contrast map
 
-  auto block_y = static_cast<size_t>(std::ceil(image_height / local_block_size)) + 1;
-  auto block_x = static_cast<size_t>(std::ceil(image_width / local_block_size)) + 1;
+  const auto block_y = static_cast<size_t>(std::ceil(image_height / local_block_size)) + 1;
+  const auto block_x = static_cast<size_t>(std::ceil(image_width / local_block_size)) + 1;
 
-  std::vector<float> enhance_cie_l (image_width * image_height);
+  std::vector<float> enhance_cie_l (image_width * image_height, 0.0f);
+  std::vector<float> enhance_cie_l_gf (image_width * image_height, 0.0f);
   for (size_t i=0; i<block_y; i++)
   {
     for (size_t j=0; j<block_x; j++)
     {
       float cielab_cc_local_mean = imagefilters::integral_image_map_local_block_mean(cielab_cc_integral_image, image_width, image_height, j * local_block_size, i * local_block_size, local_block_size, local_block_size);
       float cielab_cc_local_var = imagefilters::integral_image_map_local_block_variance(cielab_cc_squared_integral_image, cielab_cc_integral_image, image_width, image_height, j * local_block_size, i * local_block_size, local_block_size, local_block_size);
-      std::tuple<float, float, float> mean_var_gvar = {cielab_cc_local_mean, cielab_cc_local_var, cielab_cc_global_var};
+      float cielab_cc_local_min = imageops::min_channel_section_value(cielab_color_corrected_image_split[0].data(), image_width, image_height, i, j, local_block_size, local_block_size);
+      float cielab_cc_local_max = imageops::max_channel_section_value(cielab_color_corrected_image_split[0].data(), image_width, image_height, i, j, local_block_size, local_block_size);
+      std::tuple<float, float, float, float, float> mean_var_gvar_min_max = {cielab_cc_local_mean, cielab_cc_local_var, cielab_cc_global_var, cielab_cc_local_min, cielab_cc_local_max};
 
-      auto calc_function = [e_c = enhance_const](const float & source_value, void* data) -> float {
+      auto calc_function = [e_c = enhance_const](const float & source_value, const uint32_t &x, const uint32_t &y, void* data) -> float {
 
-        auto [mean, var, gvar] = *reinterpret_cast<std::tuple<float, float, float>*>(data);
+        auto [mean, var, gvar, m_min, m_max] = *reinterpret_cast<std::tuple<float, float, float, float, float>*>(data);
         const float beta = e_c;
-        float var_ratio = (gvar / var); // TODO [FIX IT]: global variance is too big for it to matter
+        float var_ratio = (gvar / var);
         float enhance_const = (var_ratio < beta) ? var_ratio : beta;
 
-        float output_value = std::clamp((mean + (enhance_const * (source_value - mean))), 0.0f, 100.0f);
+
+        float output_value = mean + (enhance_const * (source_value - mean));
+        output_value = std::clamp(output_value, 0.0f, 100.0f);
+
         return output_value;
 
       };
@@ -251,55 +278,123 @@ int main(int argc, char*argv[])
                               ,i
                               ,local_block_size
                               ,local_block_size
-                              ,image_width, image_height
+                              ,image_width
+                              ,image_height
                               ,calc_function
-                              ,&mean_var_gvar);
+                              ,&mean_var_gvar_min_max);
     }
   }
 
-  std::vector<float> l_norm = cielab_color_corrected_image_split[0];
-  cielab_color_corrected_image_split[0] = enhance_cie_l; // update L channel with enhance results
+  // guided filter
+
+  for (size_t i=0; i<block_y; i++)
+  {
+    for (size_t j=0; j<block_x; j++)
+    {
+      float local_min = imageops::min_channel_section_value(enhance_cie_l.data(), image_width, image_height, j, i, local_block_size, local_block_size);
+      float local_max = imageops::max_channel_section_value(enhance_cie_l.data(), image_width, image_height, j, i, local_block_size, local_block_size);
+      auto local_min_max = std::make_pair(local_min, local_max);
+
+      auto calc_function22 = [kc = k_const, vc = v_const, ov = cielab_color_corrected_image_split[0]](const float & source_value, const uint32_t &x, const uint32_t &y, void* data) -> float {
+
+        auto [min_val, max_val] = (*(reinterpret_cast<std::pair<float,float>*>(data)));
+
+        float val_norm = (source_value - max_val) / (max_val - min_val);
+        //float output_value = (kc * val_norm + vc) * 100.0f;
+        //float output_value = std::clamp((kc * val_norm + vc) * 255.0f, 0.0f, 255.0f);
+
+        float guided_filter = (kc * val_norm + vc);
+        float output_value = guided_filter;
+        //float output_value = std::pow(((kc * val_norm + vc) - guided_filter), 2.0f);
+        //float output_value = std::clamp(std::pow(((kc * guided_filter + vc) - (ov[x + y] / 100.0f)), 2.0f) * 1.0f, 0.0f, 255000.0f);
+        //float output_value = std::pow(((kc * guided_filter + vc) - val_norm), 2.0f);
+        //float output_value = std::clamp(std::pow(((kc * guided_filter + vc) - val_norm), 2.0f), 0.0f, 1.0f);
+
+        output_value = output_value * (max_val - min_val) + max_val;
+        output_value = std::clamp(output_value, 0.0f, 100.0f);
+
+        return output_value;
+
+      };
+
+      imageops::inplace_filter(enhance_cie_l
+          ,enhance_cie_l_gf
+          ,j
+          ,i
+          ,local_block_size
+          ,local_block_size
+          ,image_width
+          ,image_height
+          ,calc_function22
+          ,&local_min_max);
+    }
+  }
+
+  //std::vector<float> l_norm = imageops::constrained_normalize_channel(enhance_cie_l.data(), image_width, image_height);
+  //cielab_color_corrected_image_split[0] = enhance_cie_l; // update L channel with enhance results
+  cielab_color_corrected_image_split[0] = enhance_cie_l_gf; // update L channel with enhance results
+
+  //auto byte_enhance_cie_l_gf = imageops::convert_float_to_int_channel(enhance_cie_l_gf.data(), image_width, image_height);
+  //auto rgba_enhance_cie_l_gf = imageops::expand_to_n_channels(byte_enhance_cie_l_gf.data(), image_width, image_height, 1, bytes_per_pixel);
+
+  auto constrain_enhance_cie_l_gf = imageops::convert_float_to_int_channel(imageops::element_multi(255.0f, imageops::constrained_normalize_channel(enhance_cie_l_gf.data(), image_width, image_height).data(), image_width, image_height).data(), image_width, image_height);
+  auto rgba_enhance_cie_l_gf = imageops::expand_to_n_channels(constrain_enhance_cie_l_gf.data(), image_width, image_height, 1, bytes_per_pixel);
+
+
+  auto constrain_enhance_cie_l = imageops::convert_float_to_int_channel(imageops::element_multi(255.0f, imageops::constrained_normalize_channel(enhance_cie_l.data(), image_width, image_height).data(), image_width, image_height).data(), image_width, image_height);
+  auto rgba_enhance_cie_l = imageops::expand_to_n_channels(constrain_enhance_cie_l.data(), image_width, image_height, 1, bytes_per_pixel);
 
   // create guided normalized image
 
   // TODO: guide image
+  /*
   for(size_t i=0; i<image_height; i++)
   {
     for (size_t j=0; j<image_width; j++)
     {
-      l_norm[j + (i * image_width)] = (1.0f * (l_norm[j + (i * image_width)] / 100.0f) + 1.0f) * 46.0f;
-      //cielab_color_corrected_image_split[0][j + (i * image_width)] += l_norm[j + (i * image_width)];
-      //cielab_color_corrected_image_split[0][j + (i * image_width)] /= 2.0f;
+      l_norm[j + (i * image_width)] = (k_const * (l_norm[j + (i * image_width)]))  + v_const;
+      cielab_color_corrected_image_split[0][j + (i * image_width)] += l_norm[j + (i * image_width)];
     }
   }
+  */
 
   // color balance a and b channels
 
-  for (size_t k=0; k<2; k++)
-  {
-    float cei_a_mean = std::abs(imageops::mean(cielab_color_corrected_image_split[1].data(), image_width, image_height));
-    float cei_b_mean = std::abs(imageops::mean(cielab_color_corrected_image_split[2].data(), image_width, image_height));
+  auto channel_a = cielab_color_corrected_image_split[1];
+  auto channel_b = cielab_color_corrected_image_split[2];
+  float channel_a_max = imageops::max_channel_value(channel_a.data(), image_width, image_height);
+  float channel_b_max = imageops::max_channel_value(channel_b.data(), image_width, image_height);
 
-    float cei_ab_ratio = ((cei_b_mean - cei_a_mean) / (cei_a_mean + cei_b_mean));
-    float cei_ba_ratio = ((cei_a_mean - cei_b_mean) / (cei_b_mean + cei_a_mean));
+  for (size_t i=0; i<channel_a.size(); i++)
+  {
+    channel_a[i] /= channel_a_max;
+    channel_b[i] /= channel_b_max;
+  }
+
+  for (size_t k=0; k<1; k++)
+  {
+    float cei_a_mean = imageops::mean(channel_a.data(), image_width, image_height);
+    float cei_b_mean = imageops::mean(channel_b.data(), image_width, image_height);
+
+    float cei_ab_ratio = ((cei_a_mean - cei_b_mean) / (cei_b_mean + cei_a_mean)) * 0.25f;
+    float cei_ba_ratio = ((cei_b_mean - cei_a_mean) / (cei_a_mean + cei_b_mean)) * 0.25f;
 
     for(size_t i=0; i<image_height; i++)
     {
       for (size_t j=0; j<image_width; j++)
       {
+        float cie_b_value = cielab_color_corrected_image_split[2][j + (i * image_width)];
+        float cie_a_value = cielab_color_corrected_image_split[1][j + (i * image_width)];
+
         if (cei_a_mean > cei_b_mean)
         {
-          float cie_b_value = cielab_color_corrected_image_split[2][j + (i * image_width)];
           float new_cei_b_value = cie_b_value + (cei_ab_ratio * cie_b_value);
-
           cielab_color_corrected_image_split[2][j + (i * image_width)] = new_cei_b_value;
         }
 
         if (cei_a_mean < cei_b_mean)
         {
-          float cei_a_value = cielab_color_corrected_image_split[1][j + (i * image_width)];
-          float new_cei_a_value = cei_a_value + (cei_ba_ratio * cei_a_value);
-
+          float new_cei_a_value = cie_a_value + (cei_ba_ratio * cie_a_value);
           cielab_color_corrected_image_split[1][j + (i * image_width)] = new_cei_a_value;
         }
       }
@@ -311,11 +406,43 @@ int main(int argc, char*argv[])
   auto combine_cielab_color_corrected_image = imageops::channel_combine(cielab_color_corrected_image_split, image_width, image_height);
   auto combine_cielab_color_corrected_image_rgba_convert = colormodel::convert_image_cielab_to_rgb(  combine_cielab_color_corrected_image, image_width, image_height);
 
+  std::string image_file_path_base = image_file_path.substr(0, image_file_path.find_last_of('.'));
+
+  sf::Image export_image_parts;
+  export_image_parts.create(image_width, image_height);
+  std::memcpy((void *) export_image_parts.getPixelsPtr(), expanded_byte_redfine_mask_r.data(), image_width * image_height * bytes_per_pixel);
+  export_image_parts.saveToFile(image_file_path_base + "_redefine_r.png");
+  std::memcpy((void *) export_image_parts.getPixelsPtr(), expanded_byte_redfine_mask_g.data(), image_width * image_height * bytes_per_pixel);
+  export_image_parts.saveToFile(image_file_path_base + "_redefine_g.png");
+  std::memcpy((void *) export_image_parts.getPixelsPtr(), expanded_byte_redfine_mask_b.data(), image_width * image_height * bytes_per_pixel);
+  export_image_parts.saveToFile(image_file_path_base + "_redefine_b.png");
+  std::memcpy((void *) export_image_parts.getPixelsPtr(), expanded_byte_sharpen_mask_red.data(), image_width * image_height * bytes_per_pixel);
+  export_image_parts.saveToFile(image_file_path_base + "_detail_map_r.png");
+  std::memcpy((void *) export_image_parts.getPixelsPtr(), expanded_byte_sharpen_mask_green.data(), image_width * image_height * bytes_per_pixel);
+  export_image_parts.saveToFile(image_file_path_base + "_detail_map_g.png");
+  std::memcpy((void *) export_image_parts.getPixelsPtr(), expanded_byte_sharpen_mask_blue.data(), image_width * image_height * bytes_per_pixel);
+  export_image_parts.saveToFile(image_file_path_base + "_detail_map_b.png");
+  std::memcpy((void *) export_image_parts.getPixelsPtr(), expanded_attenuation_channel.data(), image_width * image_height * bytes_per_pixel);
+  export_image_parts.saveToFile(image_file_path_base + "_max_attenuation.png");
+  std::memcpy((void *) export_image_parts.getPixelsPtr(), jm_model_color_corrected_image.data(), image_width * image_height * bytes_per_pixel);
+  export_image_parts.saveToFile(image_file_path_base + "_color_transfer.png");
+  std::memcpy((void *) export_image_parts.getPixelsPtr(), rgba_byte_nm_ii_int.data(), image_width * image_height * bytes_per_pixel);
+  export_image_parts.saveToFile(image_file_path_base + "_integral_map.png");
+  std::memcpy((void *) export_image_parts.getPixelsPtr(), byte_cielab_l_channel.data(), image_width * image_height * bytes_per_pixel);
+  export_image_parts.saveToFile(image_file_path_base + "_cielab_channel_L.png");
+  std::memcpy((void *) export_image_parts.getPixelsPtr(), rgba_enhance_cie_l.data(), image_width * image_height * bytes_per_pixel);
+  export_image_parts.saveToFile(image_file_path_base + "_local_contrast.png");
+  std::memcpy((void *) export_image_parts.getPixelsPtr(), rgba_enhance_cie_l_gf.data(), image_width * image_height * bytes_per_pixel);
+  export_image_parts.saveToFile(image_file_path_base + "_guided_filter.png");
+
+  //byte_cielab_l_channel
   sf::Image image_result;
   image_result.create(image_width, image_height, combine_cielab_color_corrected_image_rgba_convert.data());
+  //image_result.create(image_width, image_height, rgba_enhance_cie_l_gf.data()); //
+  //image_result.create(image_width, image_height, rgba_enhance_cie_l.data()); //
 
   std::string color_corrected_image_file_path = image_file_path.substr(0, image_file_path.find_last_of('.'));
-  color_corrected_image_file_path += "_color_corrected.png";
+  color_corrected_image_file_path = image_file_path_base + "_color_corrected.png";
   image_result.saveToFile(color_corrected_image_file_path);
 
   sf::Texture texture_result;

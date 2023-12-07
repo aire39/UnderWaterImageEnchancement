@@ -96,6 +96,37 @@ namespace imageops {
     return value;
   }
 
+  float min_channel_value(const float * image_data_channel, const uint32_t & image_width, const uint32_t & image_height)
+  {
+    auto value = static_cast<float>(std::numeric_limits<uint8_t>::max());
+    for (size_t i=0; i<image_height; i++)
+    {
+      for (size_t j=0; j<image_width; j++)
+      {
+        value = std::min(value, image_data_channel[j + (i*image_width)]);
+      }
+    }
+
+    return value;
+  }
+
+  float min_channel_section_value(const float * image_data_channel, const uint32_t & image_width, const uint32_t & image_height, const uint32_t& x, const uint32_t& y, const uint32_t& local_width, const uint32_t& local_height)
+  {
+    auto value = static_cast<float>(std::numeric_limits<uint8_t>::max());
+    for (size_t i=(y*local_height); i<((y*local_height) + local_height); i++)
+    {
+      for (size_t j=(x*local_width); j<((x*local_width) + local_width); j++)
+      {
+        if (((x + j) < image_width) && ((y + i) < image_height))
+        {
+          value = std::min(value, image_data_channel[(x + j) + ((y + i) * image_width)]);
+        }
+      }
+    }
+
+    return value;
+  }
+
   float max_channel_value(const uint8_t * image_data_channel, const uint32_t & image_width, const uint32_t & image_height)
   {
     auto value = static_cast<float>(std::numeric_limits<uint8_t>::min());
@@ -104,6 +135,37 @@ namespace imageops {
       for (size_t j=0; j<image_width; j++)
       {
         value = std::max(value, static_cast<float>(image_data_channel[j + (i*image_width)]));
+      }
+    }
+
+    return value;
+  }
+
+  float max_channel_value(const float * image_data_channel, const uint32_t & image_width, const uint32_t & image_height)
+  {
+    auto value = static_cast<float>(std::numeric_limits<uint8_t>::min());
+    for (size_t i=0; i<image_height; i++)
+    {
+      for (size_t j=0; j<image_width; j++)
+      {
+        value = std::max(value, static_cast<float>(image_data_channel[j + (i*image_width)]));
+      }
+    }
+
+    return value;
+  }
+
+  float max_channel_section_value(const float * image_data_channel, const uint32_t & image_width, const uint32_t & image_height, const uint32_t& x, const uint32_t& y, const uint32_t& local_width, const uint32_t& local_height)
+  {
+    auto value = static_cast<float>(std::numeric_limits<uint8_t>::min());
+    for (size_t i=(y*local_height); i<((y*local_height) + local_height); i++)
+    {
+      for (size_t j=(x*local_width); j<((x*local_width) + local_width); j++)
+      {
+        if (((x + j) < image_width) && ((y + i) < image_height))
+        {
+          value = std::max(value, image_data_channel[(x + j) + ((y + i) * image_width)]);
+        }
       }
     }
 
@@ -198,6 +260,28 @@ namespace imageops {
     return image_element_sum;
   }
 
+  std::vector<float> element_multi(const float & scalar, const float * image_data_channel, const uint32_t & image_width, const uint32_t & image_height)
+  {
+    std::vector<float> result (image_width * image_height);
+    for (size_t i=0; i<(image_width * image_height); i++)
+    {
+      result[i] = image_data_channel[i] * scalar;
+    }
+
+    return result;
+  }
+
+  std::vector<float> element_divide(const float & scalar, const float * image_data_channel, const uint32_t & image_width, const uint32_t & image_height)
+  {
+    std::vector<float> result (image_width * image_height);
+    for (size_t i=0; i<(image_width * image_height); i++)
+    {
+      result[i] = image_data_channel[i] / scalar;
+    }
+
+    return result;
+  }
+
   std::vector<float> normalize_channel(const uint8_t * image_data_channel, const uint32_t & image_width, const uint32_t & image_height)
   {
     std::vector<float> normalized_channel (image_width * image_height);
@@ -207,6 +291,21 @@ namespace imageops {
     }
 
     return  normalized_channel;
+  }
+
+  std::vector<float> constrained_normalize_channel(const float * image_data_channel, const uint32_t & image_width, const uint32_t & image_height)
+  {
+    float max_value = max_channel_value(image_data_channel, image_width, image_height);
+    float min_value = min_channel_value(image_data_channel, image_width, image_height);
+
+    std::vector<float> constrained_normals(image_width * image_height);
+
+    for (size_t i=0; i<(image_width * image_height); i++)
+    {
+      constrained_normals[i] = (image_data_channel[i] - min_value) / (max_value - min_value);
+    }
+
+    return constrained_normals;
   }
 
   std::vector<float> convert_int_to_float_channel(const uint8_t * image_data_channel, const uint32_t & image_width, const uint32_t & image_height)
@@ -306,7 +405,7 @@ namespace imageops {
     return channel;
   }
 
-  void inplace_filter(const std::vector<float> & input_image, std::vector<float> & output_image, uint32_t x, uint32_t y, uint32_t local_width, uint32_t local_height, uint32_t image_width, uint32_t image_height, const std::function<float(const float &, void*)>& f, void* data)
+  void inplace_filter(const std::vector<float> & input_image, std::vector<float> & output_image, uint32_t x, uint32_t y, uint32_t local_width, uint32_t local_height, uint32_t image_width, uint32_t image_height, const std::function<float(const float &, const uint32_t &x, const uint32_t &y, void*)>& f, void* data)
   {
     for (size_t i=0; i<local_height; i++)
     {
@@ -318,7 +417,7 @@ namespace imageops {
 
         if (f && (x_limit >= 0) && (x_limit < static_cast<int32_t>(image_width)) && (y_limit >= 0) && (y_limit < static_cast<int32_t>(image_height)))
         {
-          output_image[index] = f(input_image[index], data);
+          output_image[index] = f(input_image[index], (j + (x * local_width)), ((i + (y * local_height)) * image_width), data);
         }
         int32_t hold = 0;
       }
